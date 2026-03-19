@@ -6,6 +6,7 @@ from typing import Callable, TYPE_CHECKING
 
 from models import call_model
 from assignment import pick_specialist_for_round
+from output import generate_raw_filepath
 
 if TYPE_CHECKING:
     from config import DebateConfig
@@ -16,17 +17,33 @@ CONCLUDE_SIGNAL = "CONCLUDE DEBATE"
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
-def _make_record(round_num: int, role_zh: str, model_key: str, content: str) -> dict:
+def _make_record(round_num: int, role: str, model_key: str, content: str) -> dict:
     return {
         "round": round_num,
-        "role_zh": role_zh,
+        "role_zh": role,
         "model_name": model_key,
         "content": content,
         "timestamp": datetime.now().isoformat(),
     }
 
 
-def _build_context(state: dict, current_role_zh: str, cfg: "DebateConfig") -> str:
+def _append_raw(state: dict, role: str, model_key: str, text: str) -> None:
+    """Append a raw speech block to the incremental output file. Never raises."""
+    path = state.get("raw_output_path")
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"\n{'='*60}\n")
+            f.write(f"{role} [{model_key}]  |  Round {state.get('round', '?')}  |  {datetime.now().isoformat()}\n")
+            f.write(f"{'='*60}\n")
+            f.write(text)
+            f.write("\n")
+    except Exception as e:
+        print(f"[WARN] Could not append to raw output: {e}")
+
+
+def _build_context(state: dict, current_role: str, cfg: "DebateConfig") -> str:
     """
     Build a trimmed debate history for injection into a model's user message.
     - Last N rounds: full content
@@ -88,7 +105,7 @@ def _extract_short_title(chair_text: str, fallback_topic: str) -> str:
 
 
 def _extract_specialist_recommendation(chair_text: str) -> str:
-    """Extract [SPECIALIST: 角色名] from chair's output. Returns empty string if not found."""
+    """Extract [SPECIALIST: role] from chair's output. Returns empty string if not found."""
     match = re.search(r'\[SPECIALIST:\s*(.+?)\]', chair_text)
     if match:
         return match.group(1).strip()
@@ -125,7 +142,7 @@ def parse_chair_decision(chair_text: str) -> bool:
 def make_chair_open_node(models: dict, prompts: dict, cfg: "DebateConfig") -> Callable:
     def chair_open_node(state: dict) -> dict:
         first_specialist = pick_specialist_for_round(state["rng_seed"], 1)
-        system = prompts["主席_open"]
+        system = prompts["chair_open"]
         topic_ctx = state.get("topic_context") or "None provided."
         user = f"""DEBATE TOPIC: {state['topic']}
 TOPIC CONTEXT: {topic_ctx}
@@ -139,17 +156,36 @@ Include:
 (3) A specific directive/question for the debaters to address in Round 1
 (4) Announcement of the specialist role that will intervene this round
 """
-        chair_model = state["role_map"]["主席"]
+        chair_model = state["role_map"]["chair"]
         speech = call_model(models, chair_model, system, user, cfg)
-        print(f"\n[主席 / Chair - {chair_model}] Opening statement delivered.")
 
         short_title = _extract_short_title(speech, state["topic"])
+        raw_path = generate_raw_filepath(short_title, cfg)
+
+        # Write raw file header
+        try:
+            with open(raw_path, "w", encoding="utf-8") as f:
+                f.write(f"TOPIC: {state['topic']}\n")
+                f.write(f"SEED: {state['rng_seed']}\n")
+                f.write(f"STARTED: {datetime.now().isoformat()}\n")
+        except Exception as e:
+            print(f"[WARN] Could not create raw output file: {e}")
+            raw_path = ""
+
+        print(f"\n[Chair - {chair_model}] Opening:\n{speech}\n")
+        # Build a temporary state with raw_output_path so _append_raw can use it
+        tmp_state = {**state, "raw_output_path": raw_path, "round": 0}
+        _append_raw(tmp_state, "chair", chair_model, speech)
+
+        if raw_path:
+            print(f"[INFO] Raw output: {raw_path}")
         print(f"[INFO] Short title: {short_title}")
 
-        record = _make_record(0, "主席", chair_model, speech)
+        record = _make_record(0, "chair", chair_model, speech)
         return {
             "chair_directive": speech,
             "short_title": short_title,
+            "raw_output_path": raw_path,
             "history": [record],
         }
     return chair_open_node
@@ -174,20 +210,20 @@ def increment_round_node(state: dict) -> dict:
 
 def make_supporters_node(models: dict, prompts: dict, cfg: "DebateConfig") -> Callable:
     def supporters_node(state: dict) -> dict:
-        model_key = state["role_map"]["支持派"]
+        model_key = state["role_map"]["supporters"]
 
         # Get previous round opponents speech for rebuttal (if any)
         prev_opp = ""
         if state["round"] > 1:
             prev_opps = [
                 r for r in state["history"]
-                if r["round"] == state["round"] - 1 and r["role_zh"] == "反對派"
+                if r["round"] == state["round"] - 1 and r["role_zh"] == "opponents"
             ]
             if prev_opps:
                 prev_opp = prev_opps[-1]["content"]
 
-        context = _build_context(state, "支持派", cfg)
-        system = prompts["支持派"]
+        context = _build_context(state, "supporters", cfg)
+        system = prompts["supporters"]
         topic_ctx = state.get("topic_context") or "None provided."
         user = f"""DEBATE TOPIC: {state['topic']}
 TOPIC CONTEXT: {topic_ctx}
@@ -204,12 +240,13 @@ OPPONENTS' PREVIOUS ARGUMENT (rebut this if Round > 1):
 DEBATE HISTORY:
 {context}
 
-Deliver your speech as 支持派 (Supporters). Reference claim IDs (e.g. [OPP-1]) when responding to tracked claims.
+Deliver your speech as Supporters. Reference claim IDs (e.g. [OPP-1]) when responding to tracked claims.
 """
         speech = call_model(models, model_key, system, user, cfg)
-        print(f"  [支持派 / Supporters - {model_key}] Speech delivered.")
+        print(f"\n  [Supporters - {model_key}]\n{speech}\n")
+        _append_raw(state, "supporters", model_key, speech)
 
-        record = _make_record(state["round"], "支持派", model_key, speech)
+        record = _make_record(state["round"], "supporters", model_key, speech)
         return {
             "supporters_speech": speech,
             "history": [record],
@@ -219,10 +256,10 @@ Deliver your speech as 支持派 (Supporters). Reference claim IDs (e.g. [OPP-1]
 
 def make_opponents_node(models: dict, prompts: dict, cfg: "DebateConfig") -> Callable:
     def opponents_node(state: dict) -> dict:
-        model_key = state["role_map"]["反對派"]
+        model_key = state["role_map"]["opponents"]
 
-        context = _build_context(state, "反對派", cfg)
-        system = prompts["反對派"]
+        context = _build_context(state, "opponents", cfg)
+        system = prompts["opponents"]
         topic_ctx = state.get("topic_context") or "None provided."
         user = f"""DEBATE TOPIC: {state['topic']}
 TOPIC CONTEXT: {topic_ctx}
@@ -239,12 +276,13 @@ SUPPORTERS' SPEECH THIS ROUND (respond to this directly):
 DEBATE HISTORY:
 {context}
 
-Deliver your speech as 反對派 (Opponents). Reference claim IDs (e.g. [SUP-1]) when responding to tracked claims.
+Deliver your speech as Opponents. Reference claim IDs (e.g. [SUP-1]) when responding to tracked claims.
 """
         speech = call_model(models, model_key, system, user, cfg)
-        print(f"  [反對派 / Opponents - {model_key}] Speech delivered.")
+        print(f"\n  [Opponents - {model_key}]\n{speech}\n")
+        _append_raw(state, "opponents", model_key, speech)
 
-        record = _make_record(state["round"], "反對派", model_key, speech)
+        record = _make_record(state["round"], "opponents", model_key, speech)
         return {
             "opponents_speech": speech,
             "history": [record],
@@ -257,14 +295,14 @@ def make_third_party_node(models: dict, prompts: dict, cfg: "DebateConfig") -> C
         # Use chair's recommendation if available and valid, otherwise seeded random
         recommended = state.get("next_specialist", "")
         if recommended and recommended in state["role_map"] and recommended in prompts:
-            role_zh = recommended
-            print(f"  [INFO] Using chair-recommended specialist: {role_zh}")
+            role = recommended
+            print(f"  [INFO] Using chair-recommended specialist: {role}")
         else:
-            role_zh = pick_specialist_for_round(state["rng_seed"], state["round"])
-        model_key = state["role_map"][role_zh]
+            role = pick_specialist_for_round(state["rng_seed"], state["round"])
+        model_key = state["role_map"][role]
 
-        context = _build_context(state, role_zh, cfg)
-        system = prompts[role_zh]
+        context = _build_context(state, role, cfg)
+        system = prompts[role]
         topic_ctx = state.get("topic_context") or "None provided."
         user = f"""DEBATE TOPIC: {state['topic']}
 TOPIC CONTEXT: {topic_ctx}
@@ -281,12 +319,13 @@ OPPONENTS said (this round):
 DEBATE HISTORY:
 {context}
 
-Deliver your intervention as {role_zh}. Reference claim IDs (e.g. [SUP-1], [OPP-1]) when addressing tracked claims.
+Deliver your intervention as {role}. Reference claim IDs (e.g. [SUP-1], [OPP-1]) when addressing tracked claims.
 """
         speech = call_model(models, model_key, system, user, cfg)
-        print(f"  [{role_zh} - {model_key}] Intervention delivered.")
+        print(f"\n  [{role} - {model_key}]\n{speech}\n")
+        _append_raw(state, role, model_key, speech)
 
-        record = _make_record(state["round"], role_zh, model_key, speech)
+        record = _make_record(state["round"], role, model_key, speech)
         return {
             "third_party_speech": speech,
             "history": [record],
@@ -296,8 +335,8 @@ Deliver your intervention as {role_zh}. Reference claim IDs (e.g. [SUP-1], [OPP-
 
 def make_supporters_respond_node(models: dict, prompts: dict, cfg: "DebateConfig") -> Callable:
     def supporters_respond_node(state: dict) -> dict:
-        model_key = state["role_map"]["支持派"]
-        system = prompts["支持派_respond"]
+        model_key = state["role_map"]["supporters"]
+        system = prompts["supporters_respond"]
         topic_ctx = state.get("topic_context") or "None provided."
         user = f"""DEBATE TOPIC: {state['topic']}
 TOPIC CONTEXT: {topic_ctx}
@@ -315,9 +354,10 @@ SPECIALIST INTERVENTION (respond to THIS):
 Respond directly to the specialist's specific intervention. Do NOT re-argue your general position. 100-150 words.
 """
         speech = call_model(models, model_key, system, user, cfg)
-        print(f"  [支持派_回應 / Supporters' Response - {model_key}] Delivered.")
+        print(f"\n  [Supporters' Response - {model_key}]\n{speech}\n")
+        _append_raw(state, "supporters_response", model_key, speech)
 
-        record = _make_record(state["round"], "支持派_回應", model_key, speech)
+        record = _make_record(state["round"], "supporters_response_key", model_key, speech)
         return {
             "supporters_response": speech,
             "history": [record],
@@ -327,8 +367,8 @@ Respond directly to the specialist's specific intervention. Do NOT re-argue your
 
 def make_opponents_respond_node(models: dict, prompts: dict, cfg: "DebateConfig") -> Callable:
     def opponents_respond_node(state: dict) -> dict:
-        model_key = state["role_map"]["反對派"]
-        system = prompts["反對派_respond"]
+        model_key = state["role_map"]["opponents"]
+        system = prompts["opponents_respond"]
         topic_ctx = state.get("topic_context") or "None provided."
         user = f"""DEBATE TOPIC: {state['topic']}
 TOPIC CONTEXT: {topic_ctx}
@@ -349,9 +389,10 @@ SUPPORTERS' RESPONSE TO THE INTERVENTION (critique this too):
 Respond to the specialist's intervention AND critique the Supporters' response. 100-150 words.
 """
         speech = call_model(models, model_key, system, user, cfg)
-        print(f"  [反對派_回應 / Opponents' Response - {model_key}] Delivered.")
+        print(f"\n  [Opponents' Response - {model_key}]\n{speech}\n")
+        _append_raw(state, "opponents_response", model_key, speech)
 
-        record = _make_record(state["round"], "反對派_回應", model_key, speech)
+        record = _make_record(state["round"], "opponents_response_key", model_key, speech)
         return {
             "opponents_response": speech,
             "history": [record],
@@ -362,7 +403,7 @@ Respond to the specialist's intervention AND critique the Supporters' response. 
 def make_chair_summary_node(models: dict, prompts: dict, cfg: "DebateConfig") -> Callable:
     def chair_summary_node(state: dict) -> dict:
         specialist_role = pick_specialist_for_round(state["rng_seed"], state["round"])
-        system = prompts["主席_summary"]
+        system = prompts["chair_summary"]
         topic_ctx = state.get("topic_context") or "None provided."
 
         # Build digest of previous chair summaries for cross-round memory
@@ -388,6 +429,7 @@ OPPONENTS' RESPONSE TO INTERVENTION:
 {opp_response[:400]}
 """
 
+        specialist_choices = "devils_advocate, risk_officer, implementation_officer, evidence_auditor, red_team, second_order_analyst, wild_card"
         user = f"""DEBATE TOPIC: {state['topic']}
 TOPIC CONTEXT: {topic_ctx}
 ROUND {state['round']} of {state['max_rounds']}
@@ -406,20 +448,21 @@ OPPONENTS said:
 PREVIOUS CLAIM REGISTRY:
 {state.get('claim_registry') or 'No claims tracked yet — this is the first round.'}
 
-Write your round summary. Identify unresolved disputes. Issue a specific DIRECTIVE FOR NEXT ROUND. Then output an updated CLAIM REGISTRY. Recommend the most suitable specialist for the next round using [SPECIALIST: 角色名] (choose from: 魔鬼辯護人, 風險官, 執行官, 證據審計官, 紅隊, 二階效應分析師, 奇兵). End with [DECISION: CONTINUE] or [DECISION: CONCLUDE] on its own line.
+Write your round summary. Identify unresolved disputes. Issue a specific DIRECTIVE FOR NEXT ROUND. Then output an updated CLAIM REGISTRY. Recommend the most suitable specialist for the next round using [SPECIALIST: role] (choose from: {specialist_choices}). End with [DECISION: CONTINUE] or [DECISION: CONCLUDE] on its own line.
 """
-        chair_model = state["role_map"]["主席"]
+        chair_model = state["role_map"]["chair"]
         speech = call_model(models, chair_model, system, user, cfg)
         should_continue = parse_chair_decision(speech)
 
         decision_str = "→ CONTINUE" if should_continue else "→ CONCLUDE"
-        print(f"  [主席 Summary - {chair_model}] {decision_str}")
+        print(f"\n  [Chair Summary - {chair_model}] {decision_str}\n{speech}\n")
+        _append_raw(state, "chair_summary", chair_model, speech)
 
         # Extract structured data from chair's output
         claim_registry = _extract_claim_registry(speech, state.get("claim_registry", ""))
         next_specialist = _extract_specialist_recommendation(speech)
 
-        record = _make_record(state["round"], "主席", chair_model, speech)
+        record = _make_record(state["round"], "chair", chair_model, speech)
         return {
             "chair_summary": speech,
             "chair_directive": speech,  # Update directive for next round's speakers

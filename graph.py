@@ -50,6 +50,8 @@ class DebateState(TypedDict):
     opponents_response: str
     chair_summary: str
     should_continue: bool
+    # Path to incremental raw output file (set by chair_open_node)
+    raw_output_path: str
 
 
 # ─── Routing ─────────────────────────────────────────────────────────────────
@@ -79,8 +81,10 @@ def build_debate_graph(models: dict, prompts: dict, cfg: "DebateConfig"):
     Checkpointing ensures any interrupted debate can be resumed.
     """
     try:
+        import sqlite3
         from langgraph.checkpoint.sqlite import SqliteSaver
-        checkpointer = SqliteSaver.from_conn_string(cfg.checkpoint_db)
+        conn = sqlite3.connect(cfg.checkpoint_db, check_same_thread=False)
+        checkpointer = SqliteSaver(conn)
     except Exception as e:
         print(f"[WARN] Could not initialize SQLite checkpointer: {e}")
         print("[WARN] Running without checkpointing — interruptions cannot be resumed.")
