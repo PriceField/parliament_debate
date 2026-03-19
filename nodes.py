@@ -112,6 +112,16 @@ def _extract_specialist_recommendation(chair_text: str) -> str:
     return ""
 
 
+def _header(state: dict) -> str:
+    """Common topic/round opening block shared by the five debate nodes."""
+    topic_ctx = state.get("topic_context") or "None provided."
+    return (
+        f"DEBATE TOPIC: {state['topic']}\n"
+        f"TOPIC CONTEXT: {topic_ctx}\n"
+        f"CURRENT ROUND: {state['round']} of {state['max_rounds']}"
+    )
+
+
 def _extract_claim_registry(chair_text: str, previous_registry: str) -> str:
     """Extract CLAIM REGISTRY section from chair's output. Falls back to previous registry."""
     match = re.search(r'CLAIM REGISTRY:\s*\n((?:- \[.*\n?)*)', chair_text, re.IGNORECASE)
@@ -224,10 +234,7 @@ def make_supporters_node(models: dict, prompts: dict, cfg: "DebateConfig") -> Ca
 
         context = _build_context(state, "supporters", cfg)
         system = prompts["supporters"]
-        topic_ctx = state.get("topic_context") or "None provided."
-        user = f"""DEBATE TOPIC: {state['topic']}
-TOPIC CONTEXT: {topic_ctx}
-CURRENT ROUND: {state['round']} of {state['max_rounds']}
+        user = f"""{_header(state)}
 
 CHAIR'S DIRECTIVE FOR THIS ROUND:
 {state['chair_directive']}
@@ -260,10 +267,7 @@ def make_opponents_node(models: dict, prompts: dict, cfg: "DebateConfig") -> Cal
 
         context = _build_context(state, "opponents", cfg)
         system = prompts["opponents"]
-        topic_ctx = state.get("topic_context") or "None provided."
-        user = f"""DEBATE TOPIC: {state['topic']}
-TOPIC CONTEXT: {topic_ctx}
-CURRENT ROUND: {state['round']} of {state['max_rounds']}
+        user = f"""{_header(state)}
 
 CHAIR'S DIRECTIVE FOR THIS ROUND:
 {state['chair_directive']}
@@ -303,10 +307,7 @@ def make_third_party_node(models: dict, prompts: dict, cfg: "DebateConfig") -> C
 
         context = _build_context(state, role, cfg)
         system = prompts[role]
-        topic_ctx = state.get("topic_context") or "None provided."
-        user = f"""DEBATE TOPIC: {state['topic']}
-TOPIC CONTEXT: {topic_ctx}
-CURRENT ROUND: {state['round']} of {state['max_rounds']}
+        user = f"""{_header(state)}
 
 SUPPORTERS said (this round):
 {state['supporters_speech']}
@@ -337,10 +338,7 @@ def make_supporters_respond_node(models: dict, prompts: dict, cfg: "DebateConfig
     def supporters_respond_node(state: dict) -> dict:
         model_key = state["role_map"]["supporters"]
         system = prompts["supporters_respond"]
-        topic_ctx = state.get("topic_context") or "None provided."
-        user = f"""DEBATE TOPIC: {state['topic']}
-TOPIC CONTEXT: {topic_ctx}
-CURRENT ROUND: {state['round']} of {state['max_rounds']}
+        user = f"""{_header(state)}
 
 CHAIR'S DIRECTIVE FOR THIS ROUND:
 {state['chair_directive']}
@@ -369,10 +367,7 @@ def make_opponents_respond_node(models: dict, prompts: dict, cfg: "DebateConfig"
     def opponents_respond_node(state: dict) -> dict:
         model_key = state["role_map"]["opponents"]
         system = prompts["opponents_respond"]
-        topic_ctx = state.get("topic_context") or "None provided."
-        user = f"""DEBATE TOPIC: {state['topic']}
-TOPIC CONTEXT: {topic_ctx}
-CURRENT ROUND: {state['round']} of {state['max_rounds']}
+        user = f"""{_header(state)}
 
 CHAIR'S DIRECTIVE FOR THIS ROUND:
 {state['chair_directive']}
