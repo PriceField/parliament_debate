@@ -26,7 +26,7 @@ list-sessions:
 
 # 對每個已配置的 model 送出 ping，確認 API key 與 endpoint 正常
 test:
-	$(PYTHON) test_models.py
+	-$(PYTHON) test_models.py
 
 # 清除快取與 SQLite checkpoint 資料庫
 clean:

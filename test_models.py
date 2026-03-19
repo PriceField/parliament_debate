@@ -43,10 +43,10 @@ def test_all_models() -> None:
         try:
             reply = call_model(models, key, PING_SYSTEM, PING_USER, cfg)
             snippet = reply.strip().replace("\n", " ")[:60]
-            print(f"OK  →  \"{snippet}\"")
+            print(f"OK  ->  \"{snippet}\"")
             passed.append(key)
         except Exception as e:
-            print(f"FAIL  →  {e}")
+            print(f"FAIL  ->  {e}")
             failed.append(key)
 
     print(f"\n{'='*40}")

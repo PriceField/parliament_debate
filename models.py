@@ -68,6 +68,10 @@ def init_models(cfg: "DebateConfig") -> dict[str, BaseChatModel]:
         }
         if cfg.anthropic_base_url:
             claude_kwargs["base_url"] = cfg.anthropic_base_url
+            claude_kwargs["anthropic_api_key"] = "placeholder"
+            claude_kwargs["default_headers"] = {
+                "Authorization": f"Bearer {os.getenv('ANTHROPIC_API_KEY')}",
+            }
         result["claude"] = ChatAnthropic(**claude_kwargs)
 
     if "gpt4o" in available:
@@ -81,24 +85,18 @@ def init_models(cfg: "DebateConfig") -> dict[str, BaseChatModel]:
         result["gpt4o"] = ChatOpenAI(**openai_kwargs)
 
     if "gemini" in available:
-        safety_settings = None
-        try:
-            from google.generativeai.types import HarmCategory, HarmBlockThreshold
-            safety_settings = {
-                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-            }
-        except ImportError:
-            pass
+        safety_settings = {
+            "HARM_CATEGORY_HATE_SPEECH": "BLOCK_ONLY_HIGH",
+            "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_ONLY_HIGH",
+            "HARM_CATEGORY_HARASSMENT": "BLOCK_ONLY_HIGH",
+            "HARM_CATEGORY_SEXUALLY_EXPLICIT": "BLOCK_ONLY_HIGH",
+        }
         gemini_kwargs: dict = {
             "model": aliases["gemini"],
             "max_output_tokens": cfg.max_output_tokens,
             "temperature": cfg.temperature,
+            "safety_settings": safety_settings,
         }
-        if safety_settings:
-            gemini_kwargs["safety_settings"] = safety_settings
         if cfg.google_base_url:
             gemini_kwargs["client_options"] = {"api_endpoint": cfg.google_base_url}
         result["gemini"] = ChatGoogleGenerativeAI(**gemini_kwargs)
@@ -133,7 +131,13 @@ def call_model(
     for attempt in range(cfg.call_retries):
         try:
             response = model.invoke(messages)
-            return response.content
+            content = response.content
+            if isinstance(content, list):
+                content = "".join(
+                    part.get("text", "") if isinstance(part, dict) else str(part)
+                    for part in content
+                )
+            return content
         except Exception as e:
             if attempt == cfg.call_retries - 1:
                 raise

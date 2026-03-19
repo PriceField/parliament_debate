@@ -92,10 +92,10 @@ def load_config() -> DebateConfig:
         opening_digest_chars=int(os.getenv("DEBATE_OPENING_DIGEST_CHARS", "200")),
         summary_digest_chars=int(os.getenv("DEBATE_SUMMARY_DIGEST_CHARS", "150")),
         full_detail_rounds=int(os.getenv("DEBATE_FULL_DETAIL_ROUNDS", "2")),
-        chair_summary_sup_chars=int(os.getenv("CHAIR_SUMMARY_SUP_CHARS", "600")),
-        chair_summary_opp_chars=int(os.getenv("CHAIR_SUMMARY_OPP_CHARS", "600")),
-        chair_summary_specialist_chars=int(os.getenv("CHAIR_SUMMARY_SPECIALIST_CHARS", "400")),
-        chair_summary_digest_chars=int(os.getenv("CHAIR_SUMMARY_DIGEST_CHARS", "150")),
+        chair_summary_sup_chars=int(os.getenv("CHAIR_SUMMARY_SUP_CHARS", "800")),
+        chair_summary_opp_chars=int(os.getenv("CHAIR_SUMMARY_OPP_CHARS", "800")),
+        chair_summary_specialist_chars=int(os.getenv("CHAIR_SUMMARY_SPECIALIST_CHARS", "600")),
+        chair_summary_digest_chars=int(os.getenv("CHAIR_SUMMARY_DIGEST_CHARS", "500")),
         # Output
         filename_topic_chars=int(os.getenv("DEBATE_FILENAME_TOPIC_CHARS", "30")),
     )
