@@ -7,30 +7,30 @@ from typing import Optional
 import models as _models_module
 
 DEBATE_ROLES = [
-    "主席",
-    "支持派",
-    "反對派",
-    "魔鬼辯護人",
-    "風險官",
-    "執行官",
-    "證據審計官",
-    "紅隊",
-    "二階效應分析師",
-    "奇兵",
+    "chair",
+    "supporters",
+    "opponents",
+    "devils_advocate",
+    "risk_officer",
+    "implementation_officer",
+    "evidence_auditor",
+    "red_team",
+    "second_order_analyst",
+    "wild_card",
 ]
 
 SPECIALIST_ROLES = [
-    "魔鬼辯護人",
-    "風險官",
-    "執行官",
-    "證據審計官",
-    "紅隊",
-    "二階效應分析師",
-    "奇兵",
+    "devils_advocate",
+    "risk_officer",
+    "implementation_officer",
+    "evidence_auditor",
+    "red_team",
+    "second_order_analyst",
+    "wild_card",
 ]
 
 # Roles that can be assigned (Chair is always Claude)
-ASSIGNABLE_ROLES = [r for r in DEBATE_ROLES if r != "主席"]
+ASSIGNABLE_ROLES = [r for r in DEBATE_ROLES if r != "chair"]
 
 
 def assign_roles(seed: Optional[int] = None) -> dict[str, str]:
@@ -39,20 +39,17 @@ def assign_roles(seed: Optional[int] = None) -> dict[str, str]:
     1. Chair is always Claude.
     2. Every available model appears at least once.
 
-    Returns: {role_zh: model_key}
+    Returns: {role_key: model_key}
     """
     rng = random.Random(seed)
-    role_map = {"主席": "claude"}
+    role_map = {"chair": "claude"}
 
     roles = ASSIGNABLE_ROLES.copy()
     # Read at call time so init_models() has already populated the list
     available = _models_module.ASSIGNABLE_MODELS
     if not available:
         raise RuntimeError("ASSIGNABLE_MODELS is empty — call init_models() first.")
-    models = [m for m in available if m != "claude"]  # claude is always chair
-    if not models:
-        # Only claude available: assign it to all non-chair roles too
-        models = ["claude"]
+    models = list(available)  # all models (including claude) are eligible for non-chair roles
 
     # Phase 1: Guarantee every model gets at least one role
     guaranteed_models = models.copy()
@@ -105,7 +102,7 @@ def build_final_role_map(
     final = {**random_assignment, **override}
 
     # Validate all specialist roles are covered
-    used_models = set(v for k, v in final.items() if k != "主席")
+    used_models = set(v for k, v in final.items() if k != "chair")
     missing_models = set(_models_module.ASSIGNABLE_MODELS) - used_models
     if missing_models:
         print(
