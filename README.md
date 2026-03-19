@@ -101,6 +101,14 @@ python debate.py --list-sessions
 make list-sessions
 ```
 
+### Other make targets
+
+```bash
+make test     # ping all configured models to verify API keys and endpoints
+make clean    # remove __pycache__ and SQLite checkpoint database
+make run      # print usage help without running a debate
+```
+
 ### All options
 
 | Flag | Description | Default |
