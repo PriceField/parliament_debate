@@ -18,7 +18,7 @@ class DebateConfig:
     google_model: str
     grok_model: str
 
-    # ── API Endpoints（None = 使用官方預設）─────────────────────────────
+    # ── API Endpoints (None = use official defaults) ─────────────────
     anthropic_base_url: str | None
     openai_base_url: str | None
     google_base_url: str | None

@@ -100,25 +100,36 @@ def run_debate(args: argparse.Namespace, cfg: DebateConfig) -> None:
         "chair_summary": "",
         "short_title": "",
         "should_continue": True,
+        "raw_output_path": "",
     }
 
     try:
         final_state = graph.invoke(initial_state, config=config)
     except KeyboardInterrupt:
+        raw_path = initial_state.get("raw_output_path") or "check outputs/ folder"
         print(f"\n[INFO] Debate interrupted by user.")
+        print(f"[INFO] Raw output so far: {raw_path}")
         print(f"[INFO] Resume with: python debate.py --resume {thread_id}")
         sys.exit(0)
     except Exception as e:
+        raw_path = initial_state.get("raw_output_path") or "check outputs/ folder"
         print(f"\n[ERROR] Debate interrupted: {e}")
+        print(f"[INFO] Raw output so far: {raw_path}")
         print(f"[INFO] Session saved. Resume with: python debate.py --resume {thread_id}")
         sys.exit(1)
 
-    # Write output
-    md_content = assemble_markdown(final_state, seed, cfg)
-    output_file = args.output or generate_filename(final_state, cfg)
-    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
-    Path(output_file).write_text(md_content, encoding="utf-8")
-    print(f"\n[INFO] Output written to: {output_file}")
+    # Write formatted output (raw file already written incrementally by nodes)
+    raw_path = final_state.get("raw_output_path", "")
+    try:
+        md_content = assemble_markdown(final_state, seed, cfg)
+        output_file = args.output or generate_filename(final_state, cfg)
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+        Path(output_file).write_text(md_content, encoding="utf-8")
+        print(f"\n[INFO] Formatted output: {output_file}")
+    except Exception as e:
+        print(f"\n[ERROR] Failed to write formatted output: {e}")
+    if raw_path:
+        print(f"[INFO] Raw output: {raw_path}")
 
 
 def resume_debate(session_id: str, output_file: str | None, cfg: DebateConfig) -> None:
@@ -145,11 +156,17 @@ def resume_debate(session_id: str, output_file: str | None, cfg: DebateConfig) -
     # Extract seed from state if available (for header)
     seed = final_state.get("rng_seed")
 
-    md_content = assemble_markdown(final_state, seed, cfg)
-    out = output_file or generate_filename(final_state, cfg)
-    Path(out).parent.mkdir(parents=True, exist_ok=True)
-    Path(out).write_text(md_content, encoding="utf-8")
-    print(f"\n[INFO] Output written to: {out}")
+    raw_path = final_state.get("raw_output_path", "")
+    try:
+        md_content = assemble_markdown(final_state, seed, cfg)
+        out = output_file or generate_filename(final_state, cfg)
+        Path(out).parent.mkdir(parents=True, exist_ok=True)
+        Path(out).write_text(md_content, encoding="utf-8")
+        print(f"\n[INFO] Formatted output: {out}")
+    except Exception as e:
+        print(f"\n[ERROR] Failed to write formatted output: {e}")
+    if raw_path:
+        print(f"[INFO] Raw output: {raw_path}")
 
 
 def main() -> None:
@@ -160,8 +177,8 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python debate.py --topic "AI應該受到政府監管" --rounds 4
-  python debate.py --topic "..." --role-map '{"支持派":"gpt4o","反對派":"gemini"}' --rounds 3
+  python debate.py --topic "Should AI be regulated by governments?" --rounds 4
+  python debate.py --topic "..." --role-map '{"supporters":"gpt4o","opponents":"gemini"}' --rounds 3
   python debate.py --topic "..." --seed 42137
   python debate.py --resume debate_3a7f92c1
   python debate.py --list-sessions
@@ -175,7 +192,7 @@ Examples:
         type=str,
         default=None,
         metavar="JSON",
-        help='Initial role→model assignment override, e.g. \'{"支持派":"gpt4o","反對派":"gemini"}\'',
+        help='Initial role→model assignment override, e.g. \'{"supporters":"gpt4o","opponents":"gemini"}\'',
     )
     parser.add_argument("--seed", type=int, default=None, help="Random seed for role assignment")
     parser.add_argument("--context", type=str, default="", help="Additional background context for the topic")
