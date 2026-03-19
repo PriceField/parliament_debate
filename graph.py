@@ -36,6 +36,8 @@ class DebateState(TypedDict):
     chair_summaries: Annotated[list[str], operator.add]
     # Structured claim tracking maintained by the Chair
     claim_registry: str
+    # Short title for output folder naming (set by chair opening)
+    short_title: str
     # Chair's recommended specialist for next round
     next_specialist: str
     # per-round communication fields

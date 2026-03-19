@@ -45,6 +45,7 @@ class DebateConfig:
     chair_summary_digest_chars: int
 
     # ── Output ────────────────────────────────────────────────────────────
+    output_dir: str
     filename_topic_chars: int
 
     # ── Derived helpers ───────────────────────────────────────────────────
@@ -97,5 +98,6 @@ def load_config() -> DebateConfig:
         chair_summary_specialist_chars=int(os.getenv("CHAIR_SUMMARY_SPECIALIST_CHARS", "600")),
         chair_summary_digest_chars=int(os.getenv("CHAIR_SUMMARY_DIGEST_CHARS", "500")),
         # Output
+        output_dir=os.getenv("DEBATE_OUTPUT_DIR", "outputs"),
         filename_topic_chars=int(os.getenv("DEBATE_FILENAME_TOPIC_CHARS", "30")),
     )

@@ -32,7 +32,11 @@ PROCEDURAL RULES:
 - Your opening directive MUST end with a specific question or challenge, not a vague invitation
 - Do not editorialize or reveal any preference for either side
 - Keep your opening to approximately 200 words
-- Write in English unless the topic is in another language, in which case match that language"""
+- Write in English unless the topic is in another language, in which case match that language
+- At the very end of your opening, output a short title tag for archival purposes:
+  [SHORT_TITLE: 4-8 character concise label for this debate topic]
+  Example: [SHORT_TITLE: AI政府監管] or [SHORT_TITLE: Nuclear Energy]
+  This should capture the core subject in the fewest possible characters."""
 
 
 _CHAIR_SUMMARY = """You are the CHAIR (主席) of a formal parliamentary debate. You hold no opinions and are completely neutral.

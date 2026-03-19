@@ -26,8 +26,7 @@ build/
 *.db-shm
 *.db-wal
 
-# Generated debate outputs
-debate_*.md
+# Debate outputs are committed under outputs/
 
 # IDE
 .vscode/

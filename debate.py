@@ -98,6 +98,7 @@ def run_debate(args: argparse.Namespace, cfg: DebateConfig) -> None:
         "supporters_response": "",
         "opponents_response": "",
         "chair_summary": "",
+        "short_title": "",
         "should_continue": True,
     }
 
@@ -114,7 +115,8 @@ def run_debate(args: argparse.Namespace, cfg: DebateConfig) -> None:
 
     # Write output
     md_content = assemble_markdown(final_state, seed, cfg)
-    output_file = args.output or generate_filename(args.topic, cfg)
+    output_file = args.output or generate_filename(final_state, cfg)
+    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
     Path(output_file).write_text(md_content, encoding="utf-8")
     print(f"\n[INFO] Output written to: {output_file}")
 
@@ -140,12 +142,12 @@ def resume_debate(session_id: str, output_file: str | None, cfg: DebateConfig) -
         print(f"[INFO] Try again with: python debate.py --resume {session_id}")
         sys.exit(1)
 
-    # Extract seed from state if available (for filename/header)
+    # Extract seed from state if available (for header)
     seed = final_state.get("rng_seed")
-    topic = final_state.get("topic", "unknown")
 
     md_content = assemble_markdown(final_state, seed, cfg)
-    out = output_file or generate_filename(topic, cfg)
+    out = output_file or generate_filename(final_state, cfg)
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
     Path(out).write_text(md_content, encoding="utf-8")
     print(f"\n[INFO] Output written to: {out}")
 

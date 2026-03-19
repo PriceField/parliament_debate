@@ -74,6 +74,19 @@ def _build_context(state: dict, current_role_zh: str, cfg: "DebateConfig") -> st
     return context
 
 
+def _extract_short_title(chair_text: str, fallback_topic: str) -> str:
+    """Extract [SHORT_TITLE: ...] from chair's opening. Falls back to truncated topic."""
+    match = re.search(r'\[SHORT_TITLE:\s*(.+?)\]', chair_text)
+    if match:
+        title = match.group(1).strip()
+        # Clean for filesystem safety
+        title = re.sub(r'[<>:"/\\|?*]', '', title)
+        return title
+    # Fallback: truncate topic
+    safe = re.sub(r'[<>:"/\\|?*\s]', '_', fallback_topic)
+    return safe[:15]
+
+
 def _extract_specialist_recommendation(chair_text: str) -> str:
     """Extract [SPECIALIST: 角色名] from chair's output. Returns empty string if not found."""
     match = re.search(r'\[SPECIALIST:\s*(.+?)\]', chair_text)
@@ -130,9 +143,13 @@ Include:
         speech = call_model(models, chair_model, system, user, cfg)
         print(f"\n[主席 / Chair - {chair_model}] Opening statement delivered.")
 
+        short_title = _extract_short_title(speech, state["topic"])
+        print(f"[INFO] Short title: {short_title}")
+
         record = _make_record(0, "主席", chair_model, speech)
         return {
             "chair_directive": speech,
+            "short_title": short_title,
             "history": [record],
         }
     return chair_open_node

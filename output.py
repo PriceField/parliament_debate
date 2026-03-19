@@ -1,5 +1,6 @@
 """Markdown output formatter for debate records."""
 
+import os
 import re
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
@@ -24,10 +25,22 @@ ROLE_EN_NAMES = {
 }
 
 
-def generate_filename(topic: str, cfg: "DebateConfig") -> str:
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_topic = re.sub(r"[^\w\u4e00-\u9fff]", "_", topic)[:cfg.filename_topic_chars]
-    return f"debate_{safe_topic}_{timestamp}.md"
+def generate_filename(state: dict, cfg: "DebateConfig") -> str:
+    """Generate output path: outputs/<short_title>_<YYYYMMDD>/debate_<HHMMSS>.md"""
+    short_title = state.get("short_title") or ""
+    if not short_title:
+        # Fallback: truncate topic
+        short_title = re.sub(r"[^\w\u4e00-\u9fff]", "_", state.get("topic", "debate"))[:15]
+
+    # Clean for filesystem safety
+    safe_title = re.sub(r'[<>:"/\\|?*\s]', '_', short_title).strip('_')
+    date_str = datetime.now().strftime("%Y%m%d")
+    time_str = datetime.now().strftime("%H%M%S")
+
+    folder = os.path.join(cfg.output_dir, f"{safe_title}_{date_str}")
+    os.makedirs(folder, exist_ok=True)
+
+    return os.path.join(folder, f"debate_{time_str}.md")
 
 
 def _role_table(role_map: dict, cfg: "DebateConfig") -> str:
@@ -53,6 +66,8 @@ def assemble_markdown(state: dict, seed: Optional[int], cfg: "DebateConfig") -> 
 
     # Header
     lines.append("# 議會辯論記錄\n## Parliamentary Debate Record\n")
+    if state.get("short_title"):
+        lines.append(f"**簡稱 (Short Title):** {state['short_title']}")
     lines.append(f"**辯題 (Topic):** {state['topic']}")
     lines.append(f"**日期 (Date):** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append(f"**完成輪次 (Rounds completed):** {state['round']}")
