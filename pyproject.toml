@@ -1,0 +1,20 @@
+[project]
+name = "parliament-debate"
+version = "0.1.0"
+description = "Multi-model AI parliament debate simulator using LangGraph"
+requires-python = ">=3.12"
+dependencies = [
+    "langgraph>=0.2.0",
+    "langchain>=0.3.0",
+    "langchain-core>=0.3.0",
+    "langchain-anthropic>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "langchain-google-genai>=2.0.0",
+    "google-generativeai>=0.8.0",
+    "langchain-xai>=1.2.0",
+    "python-dotenv>=1.0.0",
+    "langgraph-checkpoint-sqlite>=2.0.0",
+]
+
+[project.scripts]
+debate = "debate:main"
