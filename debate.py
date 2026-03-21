@@ -46,7 +46,65 @@ def list_sessions(cfg: DebateConfig) -> None:
         print(f"[ERROR] Could not read sessions: {e}")
 
 
+def _should_ask_continue(total_rounds: int, original_rounds: int) -> bool:
+    """Determine if we should pause and ask the user to continue.
+
+    - Once total rounds > 9: ask every round.
+    - Otherwise: ask every ``original_rounds`` rounds.
+    """
+    if total_rounds > 9:
+        return True
+    return total_rounds % original_rounds == 0
+
+
+def _interactive_continuation(graph, config: dict, final_state: dict,
+                              original_rounds: int, session_id: str) -> dict:
+    """Prompt the user to continue the debate after each scheduled pause.
+
+    Returns the final state when the user declines or the chair concludes.
+    """
+    while True:
+        total_rounds = final_state["round"]
+
+        if not _should_ask_continue(total_rounds, original_rounds):
+            # Not a pause point yet — extend silently
+            interval = original_rounds - (total_rounds % original_rounds)
+        else:
+            # Ask the user
+            print(f"\n{'─'*60}")
+            print(f"  Round {total_rounds} complete.")
+            print(f"{'─'*60}")
+            try:
+                answer = input("Continue debate? [y/N]: ")
+            except (EOFError, KeyboardInterrupt):
+                print("\n[INFO] Ending debate.")
+                break
+            if answer.strip().lower() != "y":
+                break
+            interval = 1 if total_rounds >= 9 else original_rounds
+
+        new_max = total_rounds + interval
+        # Resume from chair_summary so the conditional edge re-evaluates
+        # with the updated max_rounds and routes to continue_debate.
+        graph.update_state(config, {"max_rounds": new_max, "should_continue": True},
+                           as_node="chair_summary")
+
+        try:
+            final_state = graph.invoke(None, config=config)
+        except KeyboardInterrupt:
+            print(f"\n[INFO] Debate interrupted. Resume with: python debate.py --resume {session_id}")
+            sys.exit(0)
+        except Exception as e:
+            print(f"\n[ERROR] Debate interrupted: {e}")
+            print(f"[INFO] Resume with: python debate.py --resume {session_id}")
+            sys.exit(1)
+
+    return final_state
+
+
 def run_debate(args: argparse.Namespace, cfg: DebateConfig) -> None:
+    interactive = cfg.interactive and not args.no_interactive
+
     # Determine seed
     seed = args.seed if args.seed is not None else random.randint(0, 99999)
     print(f"[INFO] Role assignment seed: {seed}")
@@ -75,9 +133,10 @@ def run_debate(args: argparse.Namespace, cfg: DebateConfig) -> None:
     config = {"configurable": {"thread_id": thread_id}}
     print(f"[INFO] Session ID: {thread_id}")
     print(f"[INFO] To resume if interrupted: python debate.py --resume {thread_id}")
+    mode_label = "interactive" if interactive else "non-interactive"
     print(f"\n{'='*60}")
     print(f"  TOPIC: {args.topic}")
-    print(f"  ROUNDS: {args.rounds}")
+    print(f"  ROUNDS: {args.rounds}  ({mode_label})")
     print(f"{'='*60}")
 
     initial_state = {
@@ -118,6 +177,12 @@ def run_debate(args: argparse.Namespace, cfg: DebateConfig) -> None:
         print(f"[INFO] Session saved. Resume with: python debate.py --resume {thread_id}")
         sys.exit(1)
 
+    # Interactive continuation: ask user whether to extend
+    if interactive:
+        final_state = _interactive_continuation(
+            graph, config, final_state, args.rounds, thread_id,
+        )
+
     # Write formatted output (raw file already written incrementally by nodes)
     raw_path = final_state.get("raw_output_path", "")
     try:
@@ -132,8 +197,10 @@ def run_debate(args: argparse.Namespace, cfg: DebateConfig) -> None:
         print(f"[INFO] Raw output: {raw_path}")
 
 
-def resume_debate(session_id: str, output_file: str | None, cfg: DebateConfig) -> None:
+def resume_debate(session_id: str, output_file: str | None,
+                   cfg: DebateConfig, *, no_interactive: bool = False) -> None:
     """Resume a previously interrupted debate."""
+    interactive = cfg.interactive and not no_interactive
     print(f"[INFO] Resuming session: {session_id}")
 
     models = init_models(cfg)
@@ -152,6 +219,13 @@ def resume_debate(session_id: str, output_file: str | None, cfg: DebateConfig) -
         print(f"\n[ERROR] Resume failed: {e}")
         print(f"[INFO] Try again with: python debate.py --resume {session_id}")
         sys.exit(1)
+
+    # Interactive continuation after resumed rounds complete
+    if interactive:
+        original_rounds = cfg.default_rounds
+        final_state = _interactive_continuation(
+            graph, config, final_state, original_rounds, session_id,
+        )
 
     # Extract seed from state if available (for header)
     seed = final_state.get("rng_seed")
@@ -198,6 +272,7 @@ Examples:
     parser.add_argument("--context", type=str, default="", help="Additional background context for the topic")
     parser.add_argument("--output", type=str, default=None, help="Output filename (default: auto-generated)")
     parser.add_argument("--resume", type=str, default=None, metavar="SESSION_ID", help="Resume an interrupted debate session")
+    parser.add_argument("--no-interactive", action="store_true", help="Disable interactive continuation (end after planned rounds)")
     parser.add_argument("--list-sessions", action="store_true", help="List all saved debate sessions")
 
     args = parser.parse_args()
@@ -207,7 +282,7 @@ Examples:
         return
 
     if args.resume:
-        resume_debate(args.resume, args.output, cfg)
+        resume_debate(args.resume, args.output, cfg, no_interactive=args.no_interactive)
         return
 
     if not args.topic:
