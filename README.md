@@ -77,7 +77,7 @@ python debate.py --topic "AI應該受到政府監管" --rounds 3
 
 ```bash
 python debate.py --topic "核電應全面復興" \
-  --role-map '{"支持派":"gpt4o","反對派":"gemini"}' \
+  --role-map '{"supporters":"gpt4o","opponents":"gemini"}' \
   --rounds 4
 ```
 
@@ -120,31 +120,59 @@ make run      # print usage help without running a debate
 | `--context` | 議題的額外背景說明 | — |
 | `--output` | 輸出檔名 | auto-generated |
 | `--resume` | 以 session ID 恢復中斷的辯論 | — |
+| `--no-interactive` | 關閉互動模式，計畫回合結束後直接結束 | — |
 | `--list-sessions` | 列出所有已儲存的 session | — |
 
 ## Output
 
-辯論結束後產出 Markdown 檔案，包含：
+辯論過程中產出兩種檔案：
 
-- 辯題與日期
-- 角色分配表（含使用的模型與 seed）
-- 每輪完整發言記錄
-- 辯論統計（總發言數、估計字數、參與模型、出場專家）
+- **`debate_raw_<HHMMSS>.txt`** — 即時寫入的 raw transcript（crash-safe）
+- **`debate_<HHMMSS>.md`** — 辯論結束後組裝的 Markdown 格式記錄
+
+Markdown 檔案包含：辯題與日期、角色分配表（含 seed）、每輪完整發言、辯論統計（發言數、字數、參與模型、出場專家）、Claim Registry、Chair 最終評估。
+
+所有輸出存放在 `outputs/<short_title>_<YYYYMMDD>/` 目錄。
+
+## Configuration Presets
+
+`configs/` 目錄提供 5 種預設設定：
+
+| Preset | 用途 | 回合數 | Max tokens |
+|--------|------|--------|------------|
+| `configs/.env.default` | 平衡 | 3 | 1024 |
+| `configs/.env.agile` | 開發/調試 | 2 | 768 |
+| `configs/.env.max-quality` | 正式報告 | 5 | 2048 |
+| `configs/.env.token-saver` | 節省預算 | 2 | 512 |
+| `configs/.env.endless` | 長時辯論 | 20 | 1024 |
+
+使用方式：`cp configs/.env.agile .env`
+
+完整設定參考見 [docs/config-reference.md](docs/config-reference.md)。
 
 ## Architecture
 
 ```
 debate.py        CLI entry point, argument parsing, session management
-config.py        Environment-driven configuration (model names, debate settings)
+config.py        Environment-driven configuration (DebateConfig dataclass)
 models.py        Model initialization (Claude, GPT, Gemini, Grok) and call wrapper
 assignment.py    Role-to-model assignment with seeded randomness
-prompts.py       System prompts for all 10 debate roles
+prompts.py       System prompts for all 13 role/turn variants
 nodes.py         LangGraph node factories (each role's turn logic)
-graph.py         StateGraph definition, routing, and compilation
-output.py        Markdown output formatter
+graph.py         StateGraph definition (DebateState), routing, and compilation
+output.py        Markdown output formatter and raw transcript writer
 ```
 
 Checkpointing 使用 SQLite（`debate_checkpoints.db`），支援斷點續跑。
+
+詳細架構文件見 [`docs/`](docs/) 目錄：
+
+| Document | Content |
+|----------|---------|
+| [architecture.md](docs/architecture.md) | 模組相依、啟動序列、session 機制、輸出路徑 |
+| [state-and-flow.md](docs/state-and-flow.md) | DebateState 欄位、節點流程、路由邏輯、context 截斷 |
+| [config-reference.md](docs/config-reference.md) | 所有環境變數與預設值、preset 比較表 |
+| [roles-and-prompts.md](docs/roles-and-prompts.md) | 角色定義、prompt 規則、專家輪替機制 |
 
 ## Tech Stack
 
