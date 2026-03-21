@@ -44,6 +44,9 @@ class DebateConfig:
     chair_summary_specialist_chars: int
     chair_summary_digest_chars: int
 
+    # ── Interactive continuation ───────────────────────────────────────────
+    interactive: bool
+
     # ── Output ────────────────────────────────────────────────────────────
     output_dir: str
     filename_topic_chars: int
@@ -97,6 +100,8 @@ def load_config() -> DebateConfig:
         chair_summary_opp_chars=int(os.getenv("CHAIR_SUMMARY_OPP_CHARS", "800")),
         chair_summary_specialist_chars=int(os.getenv("CHAIR_SUMMARY_SPECIALIST_CHARS", "600")),
         chair_summary_digest_chars=int(os.getenv("CHAIR_SUMMARY_DIGEST_CHARS", "500")),
+        # Interactive continuation
+        interactive=os.getenv("DEBATE_INTERACTIVE", "true").lower() in ("true", "1", "yes"),
         # Output
         output_dir=os.getenv("DEBATE_OUTPUT_DIR", "outputs"),
         filename_topic_chars=int(os.getenv("DEBATE_FILENAME_TOPIC_CHARS", "30")),
