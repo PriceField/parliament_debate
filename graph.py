@@ -14,11 +14,21 @@ from nodes import (
     make_supporters_respond_node,
     make_opponents_respond_node,
     make_chair_summary_node,
-    make_write_output_node,
+    write_output_node,
 )
 
 if TYPE_CHECKING:
     from config import DebateConfig
+
+
+# ─── Types ────────────────────────────────────────────────────────────────────
+
+class SpeechRecord(TypedDict):
+    round: int
+    role_zh: str
+    model_name: str
+    content: str
+    timestamp: str
 
 
 # ─── State ────────────────────────────────────────────────────────────────────
@@ -31,7 +41,7 @@ class DebateState(TypedDict):
     role_map: dict          # {role_zh: model_key}
     rng_seed: int           # seeded per-debate; each round uses seed+round
     # append-only: each node returns only new records; operator.add merges them
-    history: Annotated[list[dict], operator.add]
+    history: Annotated[list[SpeechRecord], operator.add]
     # Chair's past summaries for cross-round memory
     chair_summaries: Annotated[list[str], operator.add]
     # Structured claim tracking maintained by the Chair
@@ -101,7 +111,7 @@ def build_debate_graph(models: dict, prompts: dict, cfg: "DebateConfig"):
     graph.add_node(NODE_SUPPORTERS_RESPOND, make_supporters_respond_node(models, prompts, cfg))
     graph.add_node(NODE_OPPONENTS_RESPOND, make_opponents_respond_node(models, prompts, cfg))
     graph.add_node(NODE_CHAIR_SUMMARY, make_chair_summary_node(models, prompts, cfg))
-    graph.add_node(NODE_WRITE_OUTPUT, make_write_output_node())
+    graph.add_node(NODE_WRITE_OUTPUT, write_output_node)
 
     # Static edges (sequential — no parallel fan-out)
     graph.set_entry_point(NODE_CHAIR_OPEN)

@@ -4,7 +4,7 @@ import json
 import random
 from typing import Optional
 
-import models as _models_module
+from models import ALL_MODELS
 
 DEBATE_ROLES = [
     "chair",
@@ -33,7 +33,7 @@ SPECIALIST_ROLES = [
 ASSIGNABLE_ROLES = [r for r in DEBATE_ROLES if r != "chair"]
 
 
-def assign_roles(seed: Optional[int] = None) -> dict[str, str]:
+def assign_roles(available_models: list[str], seed: Optional[int] = None) -> dict[str, str]:
     """
     Assign models to roles with two guarantees:
     1. Chair is always Claude.
@@ -41,15 +41,13 @@ def assign_roles(seed: Optional[int] = None) -> dict[str, str]:
 
     Returns: {role_key: model_key}
     """
+    if not available_models:
+        raise RuntimeError("available_models is empty — no models initialized.")
     rng = random.Random(seed)
     role_map = {"chair": "claude"}
 
     roles = ASSIGNABLE_ROLES.copy()
-    # Read at call time so init_models() has already populated the list
-    available = _models_module.ASSIGNABLE_MODELS
-    if not available:
-        raise RuntimeError("ASSIGNABLE_MODELS is empty — call init_models() first.")
-    models = list(available)  # all models (including claude) are eligible for non-chair roles
+    models = list(available_models)
 
     # Phase 1: Guarantee every model gets at least one role
     guaranteed_models = models.copy()
@@ -76,7 +74,7 @@ def parse_role_map_override(raw: Optional[str]) -> dict[str, str]:
     except json.JSONDecodeError as e:
         raise ValueError(f"--role-map must be valid JSON: {e}")
 
-    valid_models = set(_models_module.ALL_MODELS)
+    valid_models = set(ALL_MODELS)
     valid_roles = set(DEBATE_ROLES)
 
     cleaned = {}
@@ -95,15 +93,16 @@ def parse_role_map_override(raw: Optional[str]) -> dict[str, str]:
 
 def build_final_role_map(
     override: dict[str, str],
+    available_models: list[str],
     seed: Optional[int] = None,
 ) -> dict[str, str]:
     """Merge random assignment with user overrides. Override takes precedence."""
-    random_assignment = assign_roles(seed=seed)
+    random_assignment = assign_roles(available_models, seed=seed)
     final = {**random_assignment, **override}
 
     # Validate all specialist roles are covered
     used_models = set(v for k, v in final.items() if k != "chair")
-    missing_models = set(_models_module.ASSIGNABLE_MODELS) - used_models
+    missing_models = set(available_models) - used_models
     if missing_models:
         print(
             f"[WARN] After override, models {missing_models} have no assigned role. "

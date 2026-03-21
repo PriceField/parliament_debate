@@ -9,6 +9,21 @@ if TYPE_CHECKING:
     from config import DebateConfig
     from graph import DebateState
 
+def _sanitize_filename(s: str) -> str:
+    """Replace filesystem-unsafe characters and whitespace with underscores."""
+    return re.sub(r'[<>:"/\\|?*\s]', '_', s).strip('_')
+
+
+def _make_output_folder(short_title: str, cfg: "DebateConfig") -> tuple[str, str]:
+    """Create the date-stamped output folder and return (folder_path, time_str)."""
+    safe_title = _sanitize_filename(short_title) or "debate"
+    date_str = datetime.now().strftime("%Y%m%d")
+    time_str = datetime.now().strftime("%H%M%S")
+    folder = os.path.join(cfg.output_dir, f"{safe_title}_{date_str}")
+    os.makedirs(folder, exist_ok=True)
+    return folder, time_str
+
+
 ROLE_DISPLAY_NAMES = {
     "chair": "Chair",
     "supporters": "Supporters",
@@ -20,8 +35,8 @@ ROLE_DISPLAY_NAMES = {
     "red_team": "Red Team",
     "second_order_analyst": "Second-Order Analyst",
     "wild_card": "Wild Card",
-    "supporters_response_key": "Supporters' Response",
-    "opponents_response_key": "Opponents' Response",
+    "supporters_response": "Supporters' Response",
+    "opponents_response": "Opponents' Response",
 }
 
 
@@ -29,29 +44,14 @@ def generate_filename(state: dict, cfg: "DebateConfig") -> str:
     """Generate output path: outputs/<short_title>_<YYYYMMDD>/debate_<HHMMSS>.md"""
     short_title = state.get("short_title") or ""
     if not short_title:
-        # Fallback: truncate topic
         short_title = re.sub(r"[^\w]", "_", state.get("topic", "debate"))[:15]
-
-    # Clean for filesystem safety
-    safe_title = re.sub(r'[<>:"/\\|?*\s]', '_', short_title).strip('_')
-    date_str = datetime.now().strftime("%Y%m%d")
-    time_str = datetime.now().strftime("%H%M%S")
-
-    folder = os.path.join(cfg.output_dir, f"{safe_title}_{date_str}")
-    os.makedirs(folder, exist_ok=True)
-
+    folder, time_str = _make_output_folder(short_title, cfg)
     return os.path.join(folder, f"debate_{time_str}.md")
 
 
 def generate_raw_filepath(short_title: str, cfg: "DebateConfig") -> str:
     """Generate raw output path: outputs/<short_title>_<YYYYMMDD>/debate_raw_<HHMMSS>.txt"""
-    safe_title = re.sub(r'[<>:"/\\|?*\s]', '_', short_title).strip('_') or "debate"
-    date_str = datetime.now().strftime("%Y%m%d")
-    time_str = datetime.now().strftime("%H%M%S")
-
-    folder = os.path.join(cfg.output_dir, f"{safe_title}_{date_str}")
-    os.makedirs(folder, exist_ok=True)
-
+    folder, time_str = _make_output_folder(short_title, cfg)
     return os.path.join(folder, f"debate_raw_{time_str}.txt")
 
 
@@ -60,7 +60,7 @@ def _role_table(role_map: dict, cfg: "DebateConfig") -> str:
     rows = []
     for role_key, model_key in role_map.items():
         role_display = ROLE_DISPLAY_NAMES.get(role_key, role_key)
-        model_display = cfg.model_display_names.get(model_key, model_key)
+        model_display = cfg.model_aliases.get(model_key, model_key)
         rows.append(f"| {role_display} | {model_display} |")
     return header + "\n" + "\n".join(rows)
 
@@ -69,7 +69,7 @@ def _format_speech(record: dict, cfg: "DebateConfig") -> str:
     role_key = record["role_zh"]
     role_display = ROLE_DISPLAY_NAMES.get(role_key, role_key)
     model_key = record["model_name"]
-    model_display = cfg.model_display_names.get(model_key, model_key)
+    model_display = cfg.model_aliases.get(model_key, model_key)
     return f"### {role_display} [{model_display}]\n\n{record['content']}\n"
 
 
@@ -114,7 +114,7 @@ def assemble_markdown(state: dict, seed: Optional[int], cfg: "DebateConfig") -> 
 
     # Analytics
     total_words = sum(len(r["content"].split()) for r in history)
-    _NON_SPECIALIST_ROLES = {"chair", "supporters", "opponents", "supporters_response_key", "opponents_response_key"}
+    _NON_SPECIALIST_ROLES = {"chair", "supporters", "opponents", "supporters_response", "opponents_response"}
     specialist_records = [
         r for r in history
         if r["role_zh"] not in _NON_SPECIALIST_ROLES
@@ -125,7 +125,7 @@ def assemble_markdown(state: dict, seed: Optional[int], cfg: "DebateConfig") -> 
     lines.append(f"- **Total speeches:** {len(history)}")
     lines.append(f"- **Total words (estimated):** {total_words}")
     lines.append(f"- **Rounds completed:** {state['round']}")
-    lines.append(f"- **Models participated:** {', '.join(cfg.model_display_names.get(m, m) for m in all_models)}")
+    lines.append(f"- **Models participated:** {', '.join(cfg.model_aliases.get(m, m) for m in all_models)}")
 
     # Debate conclusion method
     if not state.get("should_continue"):
@@ -140,7 +140,7 @@ def assemble_markdown(state: dict, seed: Optional[int], cfg: "DebateConfig") -> 
         lines.append("|-------|-----------|-------|")
         for r in specialist_records:
             role_display = ROLE_DISPLAY_NAMES.get(r["role_zh"], r["role_zh"])
-            model_display = cfg.model_display_names.get(r["model_name"], r["model_name"])
+            model_display = cfg.model_aliases.get(r["model_name"], r["model_name"])
             lines.append(f"| {r['round']} | {role_display} | {model_display} |")
 
     # Claim Registry (final state)

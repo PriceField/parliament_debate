@@ -18,6 +18,26 @@ from graph import build_debate_graph
 from output import assemble_markdown, generate_filename
 
 
+def _write_formatted_output(final_state: dict, seed, cfg: DebateConfig,
+                            output_path: str | None = None) -> None:
+    """Write markdown output and print raw output path. Used by run/resume."""
+    raw_path = final_state.get("raw_output_path", "")
+    try:
+        md_content = assemble_markdown(final_state, seed, cfg)
+        out = output_path or generate_filename(final_state, cfg)
+        Path(out).parent.mkdir(parents=True, exist_ok=True)
+        Path(out).write_text(md_content, encoding="utf-8")
+        print(f"\n[INFO] Formatted output: {out}")
+    except Exception as e:
+        print(f"\n[ERROR] Failed to write formatted output: {e}")
+    if raw_path:
+        print(f"[INFO] Raw output: {raw_path}")
+
+
+_SEED_RANGE = 100_000
+_MAX_ROUNDS_BEFORE_EVERY_ASK = 9
+
+
 def make_thread_id(topic: str, seed: int) -> str:
     h = hashlib.md5(f"{topic}_{seed}".encode()).hexdigest()[:8]
     return f"debate_{h}"
@@ -49,10 +69,10 @@ def list_sessions(cfg: DebateConfig) -> None:
 def _should_ask_continue(total_rounds: int, original_rounds: int) -> bool:
     """Determine if we should pause and ask the user to continue.
 
-    - Once total rounds > 9: ask every round.
+    - Once total rounds >= _MAX_ROUNDS_BEFORE_EVERY_ASK: ask every round.
     - Otherwise: ask every ``original_rounds`` rounds.
     """
-    if total_rounds > 9:
+    if total_rounds >= _MAX_ROUNDS_BEFORE_EVERY_ASK:
         return True
     return total_rounds % original_rounds == 0
 
@@ -81,7 +101,7 @@ def _interactive_continuation(graph, config: dict, final_state: dict,
                 break
             if answer.strip().lower() != "y":
                 break
-            interval = 1 if total_rounds >= 9 else original_rounds
+            interval = 1 if total_rounds >= _MAX_ROUNDS_BEFORE_EVERY_ASK else original_rounds
 
         new_max = total_rounds + interval
         # Resume from chair_summary so the conditional edge re-evaluates
@@ -102,48 +122,55 @@ def _interactive_continuation(graph, config: dict, final_state: dict,
     return final_state
 
 
-def run_debate(args: argparse.Namespace, cfg: DebateConfig) -> None:
-    interactive = cfg.interactive and not args.no_interactive
+def run_debate(
+    topic: str,
+    rounds: int,
+    cfg: DebateConfig,
+    *,
+    seed: int | None = None,
+    context: str = "",
+    output: str | None = None,
+    role_map_json: str | None = None,
+    no_interactive: bool = False,
+) -> None:
+    interactive = cfg.interactive and not no_interactive
 
-    # Determine seed
-    seed = args.seed if args.seed is not None else random.randint(0, 99999)
+    if seed is None:
+        seed = random.randint(0, _SEED_RANGE)
     print(f"[INFO] Role assignment seed: {seed}")
 
-    # Initialize models first so ASSIGNABLE_MODELS is populated before role assignment
     print("\n[INFO] Initializing models...")
-    models = init_models(cfg)
+    models, available_models = init_models(cfg)
     print("[INFO] All models ready.")
 
-    # Build role map (uses ASSIGNABLE_MODELS populated above)
-    override = parse_role_map_override(args.role_map)
-    role_map = build_final_role_map(override, seed=seed)
+    override = parse_role_map_override(role_map_json)
+    role_map = build_final_role_map(override, available_models, seed=seed)
 
     print("[INFO] Role assignments:")
     for role, model in role_map.items():
         print(f"  {role:12s} → {model}")
 
-    # Print specialist preview for round 1
-    preview = [pick_specialist_for_round(seed, r) for r in range(1, args.rounds + 1)]
+    preview = [pick_specialist_for_round(seed, r) for r in range(1, rounds + 1)]
     print(f"[INFO] Specialist preview (may differ on run): {preview}")
 
     prompts = build_prompts()
     graph = build_debate_graph(models, prompts, cfg)
 
-    thread_id = make_thread_id(args.topic, seed)
+    thread_id = make_thread_id(topic, seed)
     config = {"configurable": {"thread_id": thread_id}}
     print(f"[INFO] Session ID: {thread_id}")
     print(f"[INFO] To resume if interrupted: python debate.py --resume {thread_id}")
     mode_label = "interactive" if interactive else "non-interactive"
     print(f"\n{'='*60}")
-    print(f"  TOPIC: {args.topic}")
-    print(f"  ROUNDS: {args.rounds}  ({mode_label})")
+    print(f"  TOPIC: {topic}")
+    print(f"  ROUNDS: {rounds}  ({mode_label})")
     print(f"{'='*60}")
 
     initial_state = {
-        "topic": args.topic,
-        "topic_context": args.context or "",
+        "topic": topic,
+        "topic_context": context,
         "round": 0,
-        "max_rounds": args.rounds,
+        "max_rounds": rounds,
         "role_map": role_map,
         "rng_seed": seed,
         "history": [],
@@ -177,24 +204,12 @@ def run_debate(args: argparse.Namespace, cfg: DebateConfig) -> None:
         print(f"[INFO] Session saved. Resume with: python debate.py --resume {thread_id}")
         sys.exit(1)
 
-    # Interactive continuation: ask user whether to extend
     if interactive:
         final_state = _interactive_continuation(
-            graph, config, final_state, args.rounds, thread_id,
+            graph, config, final_state, rounds, thread_id,
         )
 
-    # Write formatted output (raw file already written incrementally by nodes)
-    raw_path = final_state.get("raw_output_path", "")
-    try:
-        md_content = assemble_markdown(final_state, seed, cfg)
-        output_file = args.output or generate_filename(final_state, cfg)
-        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
-        Path(output_file).write_text(md_content, encoding="utf-8")
-        print(f"\n[INFO] Formatted output: {output_file}")
-    except Exception as e:
-        print(f"\n[ERROR] Failed to write formatted output: {e}")
-    if raw_path:
-        print(f"[INFO] Raw output: {raw_path}")
+    _write_formatted_output(final_state, seed, cfg, output)
 
 
 def resume_debate(session_id: str, output_file: str | None,
@@ -203,7 +218,7 @@ def resume_debate(session_id: str, output_file: str | None,
     interactive = cfg.interactive and not no_interactive
     print(f"[INFO] Resuming session: {session_id}")
 
-    models = init_models(cfg)
+    models, _ = init_models(cfg)
     prompts = build_prompts()
     graph = build_debate_graph(models, prompts, cfg)
 
@@ -230,17 +245,7 @@ def resume_debate(session_id: str, output_file: str | None,
     # Extract seed from state if available (for header)
     seed = final_state.get("rng_seed")
 
-    raw_path = final_state.get("raw_output_path", "")
-    try:
-        md_content = assemble_markdown(final_state, seed, cfg)
-        out = output_file or generate_filename(final_state, cfg)
-        Path(out).parent.mkdir(parents=True, exist_ok=True)
-        Path(out).write_text(md_content, encoding="utf-8")
-        print(f"\n[INFO] Formatted output: {out}")
-    except Exception as e:
-        print(f"\n[ERROR] Failed to write formatted output: {e}")
-    if raw_path:
-        print(f"[INFO] Raw output: {raw_path}")
+    _write_formatted_output(final_state, seed, cfg, output_file)
 
 
 def main() -> None:
@@ -288,7 +293,16 @@ Examples:
     if not args.topic:
         parser.error("--topic is required unless using --resume or --list-sessions")
 
-    run_debate(args, cfg)
+    run_debate(
+        topic=args.topic,
+        rounds=args.rounds,
+        cfg=cfg,
+        seed=args.seed,
+        context=args.context,
+        output=args.output,
+        role_map_json=args.role_map,
+        no_interactive=args.no_interactive,
+    )
 
 
 if __name__ == "__main__":

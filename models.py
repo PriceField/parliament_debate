@@ -25,9 +25,6 @@ _MODEL_KEY_MAP = {
     "grok": "XAI_API_KEY",
 }
 
-ASSIGNABLE_MODELS: list[str] = []  # populated by init_models()
-
-
 def _get_available_models(cfg: "DebateConfig") -> list[str]:
     """Return model keys that have both an API key and a model name configured."""
     aliases = cfg.model_aliases
@@ -38,19 +35,15 @@ def _get_available_models(cfg: "DebateConfig") -> list[str]:
     return available
 
 
-def init_models(cfg: "DebateConfig") -> dict[str, BaseChatModel]:
+def init_models(cfg: "DebateConfig") -> tuple[dict[str, BaseChatModel], list[str]]:
     """Initialize model clients for all available (key + model) pairs.
 
-    Updates the global ASSIGNABLE_MODELS list so assignment.py sees which
-    models are actually usable.  Requires at least Claude (chair).
+    Returns (models_dict, available_keys).  Requires at least Claude (chair).
     """
-    global ASSIGNABLE_MODELS
     available = _get_available_models(cfg)
 
     if "claude" not in available:
         raise EnvironmentError("ANTHROPIC_API_KEY is required (Claude is the chair).")
-
-    ASSIGNABLE_MODELS = available
 
     skipped = [k for k in ALL_MODELS if k not in available]
     if skipped:
@@ -111,7 +104,7 @@ def init_models(cfg: "DebateConfig") -> dict[str, BaseChatModel]:
             xai_kwargs["base_url"] = cfg.xai_base_url
         result["grok"] = ChatXAI(**xai_kwargs)
 
-    return result
+    return result, available
 
 
 def call_model(

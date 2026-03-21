@@ -62,10 +62,6 @@ class DebateConfig:
             "grok": self.grok_model,
         }
 
-    @property
-    def model_display_names(self) -> dict[str, str]:
-        return self.model_aliases
-
 
 def load_config() -> DebateConfig:
     """Read all env vars and return a frozen snapshot.

@@ -5,11 +5,12 @@ from datetime import datetime
 from typing import Callable, TYPE_CHECKING
 
 from models import call_model
-from assignment import pick_specialist_for_round
-from output import generate_raw_filepath
+from assignment import pick_specialist_for_round, SPECIALIST_ROLES
+from output import generate_raw_filepath, _sanitize_filename
 
 if TYPE_CHECKING:
     from config import DebateConfig
+    from graph import SpeechRecord
 
 CONTINUE_SIGNAL = "CONTINUE DEBATE"
 CONCLUDE_SIGNAL = "CONCLUDE DEBATE"
@@ -17,7 +18,7 @@ CONCLUDE_SIGNAL = "CONCLUDE DEBATE"
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
-def _make_record(round_num: int, role: str, model_key: str, content: str) -> dict:
+def _make_record(round_num: int, role: str, model_key: str, content: str) -> "SpeechRecord":
     return {
         "round": round_num,
         "role_zh": role,
@@ -41,6 +42,11 @@ def _append_raw(state: dict, role: str, model_key: str, text: str) -> None:
         print(f"[WARN] Could not append to raw output: {e}")
 
 
+def _speeches_for_round(history: list, round_num: int) -> list:
+    """Return all speech records for a given round number."""
+    return [r for r in history if r["round"] == round_num]
+
+
 def _build_context(state: dict, current_role: str, cfg: "DebateConfig") -> str:
     """
     Build a trimmed debate history for injection into a model's user message.
@@ -54,7 +60,7 @@ def _build_context(state: dict, current_role: str, cfg: "DebateConfig") -> str:
     sections = []
 
     # Opening speech (round 0) always included as digest
-    opening_records = [r for r in history if r["round"] == 0]
+    opening_records = _speeches_for_round(history, 0)
     if opening_records:
         digest = opening_records[0]["content"][:cfg.opening_digest_chars].replace("\n", " ")
         sections.append(f"CHAIR'S OPENING (digest): {digest}...")
@@ -68,13 +74,13 @@ def _build_context(state: dict, current_role: str, cfg: "DebateConfig") -> str:
             f"\nEARLIER ROUNDS DIGEST (Rounds {summary_rounds[0]}–{summary_rounds[-1]}):"
         )
         for r_num in summary_rounds:
-            for speech in [r for r in history if r["round"] == r_num]:
+            for speech in _speeches_for_round(history, r_num):
                 digest = speech["content"][:cfg.summary_digest_chars].replace("\n", " ")
                 sections.append(f"  [{speech['role_zh']}]: {digest}...")
 
     for r_num in full_detail_rounds:
         sections.append(f"\n--- ROUND {r_num} (FULL) ---")
-        for speech in [r for r in history if r["round"] == r_num]:
+        for speech in _speeches_for_round(history, r_num):
             sections.append(
                 f"\n{speech['role_zh']} [{speech['model_name']}]:\n{speech['content']}"
             )
@@ -93,13 +99,8 @@ def _extract_short_title(chair_text: str, fallback_topic: str) -> str:
     """Extract [SHORT_TITLE: ...] from chair's opening. Falls back to truncated topic."""
     match = re.search(r'\[SHORT_TITLE:\s*(.+?)\]', chair_text)
     if match:
-        title = match.group(1).strip()
-        # Clean for filesystem safety
-        title = re.sub(r'[<>:"/\\|?*]', '', title)
-        return title
-    # Fallback: truncate topic
-    safe = re.sub(r'[<>:"/\\|?*\s]', '_', fallback_topic)
-    return safe[:15]
+        return _sanitize_filename(match.group(1).strip())
+    return _sanitize_filename(fallback_topic)[:15]
 
 
 def _extract_specialist_recommendation(chair_text: str) -> str:
@@ -353,7 +354,7 @@ Respond directly to the specialist's specific intervention. Do NOT re-argue your
         print(f"\n  [Supporters' Response - {model_key}]\n{speech}\n")
         _append_raw(state, "supporters_response", model_key, speech)
 
-        record = _make_record(state["round"], "supporters_response_key", model_key, speech)
+        record = _make_record(state["round"], "supporters_response", model_key, speech)
         return {
             "supporters_response": speech,
             "history": [record],
@@ -385,7 +386,7 @@ Respond to the specialist's intervention AND critique the Supporters' response. 
         print(f"\n  [Opponents' Response - {model_key}]\n{speech}\n")
         _append_raw(state, "opponents_response", model_key, speech)
 
-        record = _make_record(state["round"], "opponents_response_key", model_key, speech)
+        record = _make_record(state["round"], "opponents_response", model_key, speech)
         return {
             "opponents_response": speech,
             "history": [record],
@@ -422,7 +423,7 @@ OPPONENTS' RESPONSE TO INTERVENTION:
 {opp_response[:400]}
 """
 
-        specialist_choices = "devils_advocate, risk_officer, implementation_officer, evidence_auditor, red_team, second_order_analyst, wild_card"
+        specialist_choices = ", ".join(SPECIALIST_ROLES)
         user = f"""DEBATE TOPIC: {state['topic']}
 TOPIC CONTEXT: {topic_ctx}
 ROUND {state['round']} of {state['max_rounds']}
@@ -468,10 +469,7 @@ Write your round summary. Identify unresolved disputes. Issue a specific DIRECTI
     return chair_summary_node
 
 
-def make_write_output_node() -> Callable:
-    def write_output_node(state: dict) -> dict:
-        # Actual writing is handled in debate.py after graph.invoke returns.
-        # This node is a no-op passthrough so the graph has a clean termination node.
-        print(f"\n[INFO] Debate complete after {state['round']} round(s).")
-        return {}
-    return write_output_node
+def write_output_node(state: dict) -> dict:
+    """No-op terminal node — actual writing is in debate.py after graph.invoke."""
+    print(f"\n[INFO] Debate complete after {state['round']} round(s).")
+    return {}
