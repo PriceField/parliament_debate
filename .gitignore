@@ -1,7 +1,8 @@
-# Environment & secrets
+# Environment & secrets — ignore root .env files, allow configs/
 .env
+.env.*
+!configs/.env*
 *.env.local
-configs/.env.*.local
 
 # Virtual environment
 .venv/
