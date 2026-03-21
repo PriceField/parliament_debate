@@ -34,9 +34,7 @@ def _append_raw(state: dict, role: str, model_key: str, text: str) -> None:
         return
     try:
         with open(path, "a", encoding="utf-8") as f:
-            f.write(f"\n{'='*60}\n")
-            f.write(f"{role} [{model_key}]  |  Round {state.get('round', '?')}  |  {datetime.now().isoformat()}\n")
-            f.write(f"{'='*60}\n")
+            f.write(f"\n--- {role} [{model_key}] R{state.get('round', '?')} ---\n")
             f.write(text)
             f.write("\n")
     except Exception as e:
